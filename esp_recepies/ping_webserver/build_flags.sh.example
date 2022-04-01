@@ -1,0 +1,22 @@
+#!/bin/bash
+# See https://docs.platformio.org/en/latest/projectconf/section_env_build.html#dynamic-build-flags
+#
+# Rename this file just "build_flags.sh" and substitute in your values.
+#
+
+
+HOSTNAME="MY_DEVICE_NAME"
+WIFI_SSID="WIFI_SSID"
+WIFI_PASS="WIFI_PASSWORD"
+WEB_SERVER_IP="10.0.0.2"
+WEB_PORT="5000"
+WEB_PATH="/ping"
+
+echo "\
+-D 'WIFI_SSID=${WIFI_SSID}' \
+-D 'WIFI_PASS=${WIFI_PASS}' \
+-D 'HOSTNAME=${HOSTNAME}' \
+-D 'WEB_SERVER_IP=${WEB_SERVER_IP}' \
+-D 'WEB_PORT=${WEB_PORT}' \
+-D 'WEB_PATH=${WEB_PATH}' \
+"
