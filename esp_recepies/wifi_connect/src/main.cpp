@@ -37,13 +37,14 @@ void WIFISetUp(void)
     while (WiFi.status() != WL_CONNECTED && count < 10)
     {
         count++;
-        delay(500);
+        delay(1000);
+        Heltec.display->clear();
         Heltec.display->drawString(0, 0, String(NAME) + ": connecting to " + String(SSID));
+        Heltec.display->drawString(0,20, "Attempt: " + String(count));
         Heltec.display->display();
     }
 
     delay(500);
-https: // docs.platformio.org/en/latest/projectconf/section_env_build.html#dynamic-build-flags
 }
 
 void setup()
