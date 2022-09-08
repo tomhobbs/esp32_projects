@@ -16,8 +16,6 @@ const char *NAME = STR(HOSTNAME);
 const char *SSID = STR(WIFI_SSID);
 const char *PASSWORD = STR(WIFI_PASS);
 
-static const char *TAG = "UploadFile";
-
 void WIFISetUp(void)
 {
     Serial.print("WIFI: Connecting to " + String(SSID));

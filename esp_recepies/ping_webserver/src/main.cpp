@@ -8,7 +8,6 @@
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
-#include "esp_log.h"
 #include "nvs_flash.h"
 // #include "protocol_examples_common.h"
 
@@ -48,9 +47,11 @@ static const String REQUEST = "GET " + String(PATH); // + "HTTP/1.0\r\n" +
 
 bool successful_ping = false;
 
+static const char *TAG = "UploadFile";
+
 void WIFISetUp(void)
 {
-  Serial.print("WIFI: Connecting to " + String(SSID));
+  Serial.print("\nWIFI: Connecting to " + String(SSID));
 
   Heltec.display->clear();
 
@@ -99,7 +100,7 @@ void http_get_task(void *pvParameters)
 
     if (err != 0 || res == NULL)
     {
-      ESP_LOGE(TAG, "DNS lookup failed err=%d res=%p", err, res);
+      Serial.print("\nDNS lookup failed err=" + String(err));
       vTaskDelay(1000 / portTICK_PERIOD_MS);
       continue;
     }
@@ -107,28 +108,28 @@ void http_get_task(void *pvParameters)
     /* Code to print the resolved IP.
        Note: inet_ntoa is non-reentrant, look at ipaddr_ntoa_r for "real" code */
     addr = &((struct sockaddr_in *)res->ai_addr)->sin_addr;
-    ESP_LOGI(TAG, "DNS lookup succeeded. IP=%s", inet_ntoa(*addr));
+    Serial.print("\nDNS lookup succeeded. IP=" + String(inet_ntoa(*addr)));
 
     s = socket(res->ai_family, res->ai_socktype, 0);
     if (s < 0)
     {
-      ESP_LOGE(TAG, "... Failed to allocate socket.");
+      Serial.print("\nFailed to allocate socket.");
       freeaddrinfo(res);
       vTaskDelay(1000 / portTICK_PERIOD_MS);
       continue;
     }
-    ESP_LOGI(TAG, "... allocated socket");
+    Serial.print("\nAllocated socket");
 
     if (connect(s, res->ai_addr, res->ai_addrlen) != 0)
     {
-      ESP_LOGE(TAG, "... socket connect failed errno=%d", errno);
+      Serial.print("\nSocket connect failed errno=" + String(errno));
       close(s);
       freeaddrinfo(res);
       vTaskDelay(4000 / portTICK_PERIOD_MS);
       continue;
     }
 
-    ESP_LOGI(TAG, "... connected");
+    Serial.print("\nConnected");
     freeaddrinfo(res);
 
     char cs[REQUEST.length() + 1];
@@ -137,13 +138,13 @@ void http_get_task(void *pvParameters)
     if (write(s, cs, strlen(cs)) < 0)
     {
       // if (write(s, REQUEST, strlen(REQUEST)) < 0) {
-      ESP_LOGE(TAG, "... socket send failed");
+      Serial.print("\nSocket send failed");
       close(s);
       vTaskDelay(4000 / portTICK_PERIOD_MS);
       continue;
     }
     successful_ping = true;
-    ESP_LOGI(TAG, "... socket send success");
+    Serial.print("\nSocket send success");
 
     struct timeval receiving_timeout;
     receiving_timeout.tv_sec = 5;
@@ -151,12 +152,12 @@ void http_get_task(void *pvParameters)
     if (setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &receiving_timeout,
                    sizeof(receiving_timeout)) < 0)
     {
-      ESP_LOGE(TAG, "... failed to set socket receiving timeout");
+      Serial.print("\nFailed to set socket receiving timeout");
       close(s);
       vTaskDelay(4000 / portTICK_PERIOD_MS);
       continue;
     }
-    ESP_LOGI(TAG, "... set socket receiving timeout success");
+    Serial.print("\nSet socket receiving timeout success");
 
     /* Read HTTP response */
     do
@@ -169,14 +170,14 @@ void http_get_task(void *pvParameters)
       }
     } while (r > 0);
 
-    ESP_LOGI(TAG, "... done reading from socket. Last read return=%d errno=%d.", r, errno);
+    Serial.print("\nDone reading from socket.");
     close(s);
     for (int countdown = 10; countdown >= 0; countdown--)
     {
-      ESP_LOGI(TAG, "%d... ", countdown);
+      Serial.print("\nCountdown: " + String(countdown));
       vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
-    ESP_LOGI(TAG, "Starting again!");
+    Serial.print("\nStarting again!");
   }
 }
 
