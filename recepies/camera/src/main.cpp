@@ -10,7 +10,7 @@
 
 /**
  * 2. Kconfig setup
- * 
+ *
  * If you have a Kconfig file, copy the content from
  *  https://github.com/espressif/esp32-camera/blob/master/Kconfig into it.
  * In case you haven't, copy and paste this Kconfig file inside the src directory.
@@ -20,9 +20,9 @@
 
 /**
  * 3. Enable PSRAM on sdkconfig:
- * 
+ *
  * CONFIG_ESP32_SPIRAM_SUPPORT=y
- * 
+ *
  * More info on
  * https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html#config-esp32-spiram-support
  */
@@ -39,110 +39,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// support IDF 5.x
-#ifndef portTICK_RATE_MS
-#define portTICK_RATE_MS portTICK_PERIOD_MS
-#endif
+#include <SPI.h>
+#include "FS.h"
+#include "SPIFFS.h"
+#include <ArduCAM.h>
+#include "memorysaver.h"
 
-#include "esp_camera.h"
+#include "ov2640_regs.h"
 
-#define BOARD_WROVER_KIT 1
-
-// WROVER-KIT PIN Map
-#ifdef BOARD_WROVER_KIT
-
-#define CAM_PIN_PWDN -1  //power down is not used
-#define CAM_PIN_RESET -1 //software reset will be performed
-#define CAM_PIN_XCLK 21
-#define CAM_PIN_SIOD 26
-#define CAM_PIN_SIOC 27
-
-#define CAM_PIN_D7 35
-#define CAM_PIN_D6 34
-#define CAM_PIN_D5 39
-#define CAM_PIN_D4 36
-#define CAM_PIN_D3 19
-#define CAM_PIN_D2 18
-#define CAM_PIN_D1 5
-#define CAM_PIN_D0 4
-#define CAM_PIN_VSYNC 25
-#define CAM_PIN_HREF 23
-#define CAM_PIN_PCLK 22
-
-#endif
-
-// ESP32Cam (AiThinker) PIN Map
-#ifdef BOARD_ESP32CAM_AITHINKER
-
-#define CAM_PIN_PWDN 32
-#define CAM_PIN_RESET -1 //software reset will be performed
-#define CAM_PIN_XCLK 0
-#define CAM_PIN_SIOD 26
-#define CAM_PIN_SIOC 27
-
-#define CAM_PIN_D7 35
-#define CAM_PIN_D6 34
-#define CAM_PIN_D5 39
-#define CAM_PIN_D4 36
-#define CAM_PIN_D3 21
-#define CAM_PIN_D2 19
-#define CAM_PIN_D1 18
-#define CAM_PIN_D0 5
-#define CAM_PIN_VSYNC 25
-#define CAM_PIN_HREF 23
-#define CAM_PIN_PCLK 22
-
-#endif
-
-static const char *TAG = "example:take_picture";
-
-static camera_config_t camera_config = {
-    .pin_pwdn = CAM_PIN_PWDN,
-    .pin_reset = CAM_PIN_RESET,
-    .pin_xclk = CAM_PIN_XCLK,
-    // .pin_sccb_sda = CAM_PIN_SIOD,
-    // .pin_sccb_scl = CAM_PIN_SIOC,
-    .pin_sscb_sda = CAM_PIN_SIOD,
-    .pin_sscb_scl = CAM_PIN_SIOC,
-
-    .pin_d7 = CAM_PIN_D7,
-    .pin_d6 = CAM_PIN_D6,
-    .pin_d5 = CAM_PIN_D5,
-    .pin_d4 = CAM_PIN_D4,
-    .pin_d3 = CAM_PIN_D3,
-    .pin_d2 = CAM_PIN_D2,
-    .pin_d1 = CAM_PIN_D1,
-    .pin_d0 = CAM_PIN_D0,
-    .pin_vsync = CAM_PIN_VSYNC,
-    .pin_href = CAM_PIN_HREF,
-    .pin_pclk = CAM_PIN_PCLK,
-
-    //XCLK 20MHz or 10MHz for OV2640 double FPS (Experimental)
-    .xclk_freq_hz = 20000000,
-    .ledc_timer = LEDC_TIMER_0,
-    .ledc_channel = LEDC_CHANNEL_0,
-
-    .pixel_format = PIXFORMAT_RGB565, //YUV422,GRAYSCALE,RGB565,JPEG
-    .frame_size = FRAMESIZE_QVGA,    //QQVGA-UXGA Do not use sizes above QVGA when not JPEG
-
-    .jpeg_quality = 12, //0-63 lower number means higher quality
-    .fb_count = 1,       //if more than one, i2s runs in continuous mode. Use only with JPEG
-    .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
-};
-
-static esp_err_t init_camera()
-{
-  Serial.print("\nInitialising camera\n");
-    //initialize the camera
-    esp_err_t err = esp_camera_init(&camera_config);
-    if (err != ESP_OK)
-    {
-        Serial.print("\nCamera Init Failed\n");
-        return err;
-    }
-
-    return ESP_OK;
-}
+#define XSTR(x) #x
+#define STR(x) XSTR(x)
 
 const bool DISPLAY_ON = false;
 const bool LORA_ON = false;
@@ -150,45 +56,214 @@ const bool SERIAL_ON = true;
 const bool PABOOST_ON = true;
 const long RAND = 470E6;
 
+const char *NAME = STR(HOSTNAME);
 
+#define FORMAT_SPIFFS_IF_FAILED true
 
-void setup()
-{
-  Serial.print("Setup");
-  Heltec.begin(DISPLAY_ON, LORA_ON, SERIAL_ON, PABOOST_ON, RAND);
+const int CAM_POWER_ON = A10;
+// set GPIO16 as the slave se even tried with a new bought ArduCam, but no luck, I even did not get the sample code worlect :
+const int CS = 17;
+//Version 2,set GPIO0 as the slave select :
+char pname[20];
+//static int  index=0;
+byte buf[256];
+static int i = 0;
+static int k = 0;
+uint8_t temp = 0, temp_last = 0;
+uint32_t length = 0;
+bool is_header = false;
 
-  init_camera();
-}
+ArduCAM myCAM(OV2640, CS);
 
-void loop()
-{
-  delay(1000);
-
-  if(ESP_OK != init_camera()) {
-  // if(!camera_initialised) {
-  //   init_camera();
-    // Heltec.display->clear();
-    // Heltec.display->drawString(10, 0, "Camera init failed");
-    // Heltec.display->display();
+void capture2SD(fs::FS &fs, const char * path) {
+  File file ;
+  //Flush the FIFO
+  myCAM.flush_fifo();
+  //Clear the capture done flag
+  myCAM.clear_fifo_flag();
+  //Start capture
+  myCAM.start_capture();
+  Serial.println(F("Start Capture"));
+  while (!myCAM.get_bit(ARDUCHIP_TRIG , CAP_DONE_MASK)) {
+    //Serial.println("...capturing");
+  }
+  Serial.println(F("Capture Done."));
+  length = myCAM.read_fifo_length();
+  Serial.print(F("The fifo length is :"));
+  Serial.println(length, DEC);
+  if (length >= MAX_FIFO_SIZE) //8M
+  {
+    Serial.println(F("Over size."));
+  }
+  if (length == 0 ) //0 kb
+  {
+    Serial.println(F("Size is 0."));
+  }
+  file = fs.open(path, FILE_WRITE);
+  if (!file) {
+    Serial.println("Failed to open file for writing");
     return;
   }
-
-    
-  // Heltec.display->clear();
-  // Heltec.display->drawString(10, 0, "Camera initialised");
-  // Heltec.display->display();
-
-    while (1)
+  i = 0;
+  myCAM.CS_LOW();
+  myCAM.set_fifo_burst();
+  while ( length-- )
+  {
+    temp_last = temp;
+    temp =  SPI.transfer(0x00);
+    //Read JPEG data from FIFO
+    if ( (temp == 0xD9) && (temp_last == 0xFF) ) //If find the end ,break while,
     {
-        Serial.print("Taking picture...");
-        camera_fb_t *pic = esp_camera_fb_get();
-
-        // use pic->buf to access the image
-        Serial.print("Picture taken! Its size was: " + String(pic->len) + "bytes");
-        esp_camera_fb_return(pic);
-
-        vTaskDelay(5000 / portTICK_RATE_MS);
-    // } else {
-    //   Serial.print("Camera not initialised");
+      buf[i++] = temp;  //save the last  0XD9
+      //Write the remain bytes in the buffer
+      myCAM.CS_HIGH();
+      file.write(buf, i);
+      //Close the file
+      file.close();
+      Serial.println(F("Image save OK."));
+      is_header = false;
+      i = 0;
     }
+    if (is_header == true)
+    {
+      //Write image data to buffer if not full
+      if (i < 256)
+        buf[i++] = temp;
+      else
+      {
+        //Write 256 bytes image data to file
+        myCAM.CS_HIGH();
+        file.write(buf, 256);
+        i = 0;
+        buf[i++] = temp;
+        myCAM.CS_LOW();
+        myCAM.set_fifo_burst();
+      }
+    }
+    else if ((temp == 0xD8) & (temp_last == 0xFF))
+    {
+      is_header = true;
+      buf[i++] = temp_last;
+      buf[i++] = temp;
+    }
+  }
 }
+
+void setup() {
+  Heltec.begin(DISPLAY_ON, LORA_ON, SERIAL_ON, PABOOST_ON, RAND);
+
+  uint8_t vid, pid;
+  uint8_t temp;
+  static int i = 0;
+  //set the CS as an output:
+  pinMode(CS, OUTPUT);
+  pinMode(CAM_POWER_ON , OUTPUT);
+  digitalWrite(CAM_POWER_ON, HIGH);
+  Wire.begin();
+  Serial.begin(115200);
+  Serial.println(F("ArduCAM Start!"));
+  //initialize SPI:
+  SPI.begin();
+  while (1) {
+    //Check if the ArduCAM SPI bus is OK
+    myCAM.write_reg(ARDUCHIP_TEST1, 0x55);
+    temp = myCAM.read_reg(ARDUCHIP_TEST1);
+    if (temp != 0x55) {
+      Serial.println(F("SPI interface Error!"));
+      delay(2);
+      continue;
+    }
+    else
+      break;
+  }
+
+  //Add support for SPIFFS
+  if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)) {
+    Serial.println("SPIFFS Mount Failed");
+    return;
+  }
+  Serial.println("SPIFFS Mount Successful");
+
+  //Check if the camera module type is OV2640
+  myCAM.wrSensorReg8_8(0xff, 0x01);
+  myCAM.rdSensorReg8_8(OV2640_CHIPID_HIGH, &vid);
+  myCAM.rdSensorReg8_8(OV2640_CHIPID_LOW, &pid);
+  if ((vid != 0x26 ) && (( pid != 0x41 ) || ( pid != 0x42 )))
+    Serial.println(F("Can't find OV2640 module!"));
+  else
+    Serial.println(F("OV2640 detected."));
+  
+  delay(1000);
+}
+
+void loop() {
+  sprintf((char*)pname, "/%05d.jpg", k);
+  capture2SD(SPIFFS, pname);
+
+//  listDir(SPIFFS, "/", 0);
+//  readImage(SPIFFS, pname);
+// deleteFile(SPIFFS, pname);
+   k++;
+  delay(5000);
+
+}
+
+// void listDir(fs::FS &fs, const char * dirname, uint8_t levels) {
+//   Serial.printf("Listing directory: %s\r\n", dirname);
+
+//   File root = fs.open(dirname);
+//   if (!root) {
+//     Serial.println("- failed to open directory");
+//     return;
+//   }
+//   if (!root.isDirectory()) {
+//     Serial.println(" - not a directory");
+//     return;
+//   }
+
+//   File file = root.openNextFile();
+//   while (file) {
+//     if (file.isDirectory()) {
+//       Serial.print("  DIR : ");
+//       Serial.println(file.name());
+//       if (levels) {
+//         listDir(fs, file.name(), levels - 1);
+//       }
+//     } else {
+//       Serial.print("  FILE: ");
+//       Serial.print(file.name());
+//       Serial.print("\tSIZE: ");
+//       Serial.println(file.size());
+//     }
+//     file = root.openNextFile();
+//   }
+// }
+
+// void readImage(fs::FS &fs, const char * path) {
+//   Serial.printf("Reading Image: %s\r\n", path);
+//   File file = fs.open(path);
+//   if (!file || file.isDirectory()) {
+//     Serial.println("- failed to open file for reading");
+//     return;
+//   }
+
+//   Serial.println("- read from file:");
+//   while (file.available()) {
+//     Serial.println(file.read(), HEX);
+//   }
+// }
+
+
+
+// void deleteFile(fs::FS &fs, const char * path){
+//     Serial.printf("Deleting file: %s\r\n", path);
+//     if(fs.remove(path)){
+//         Serial.println("- file deleted");
+//     } else {
+//         Serial.println("- delete failed");
+//     }
+// }
+
+// void setup()
+// {
+// }
