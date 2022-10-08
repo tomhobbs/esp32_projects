@@ -27,3 +27,5 @@ Current pin allocation:
 
 - https://github.com/yoursunny/esp32cam
 - https://github.com/espressif/esp32-camera
+- https://randomnerdtutorials.com/esp32-pinout-reference-gpios/
+- https://www.arducam.com/docs/spi-cameras-for-arduino/software/source-code-github-links/
